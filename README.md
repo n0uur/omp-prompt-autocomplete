@@ -7,6 +7,10 @@ AI help for the oh-my-pi (`omp`) prompt box:
 
 Both features use small, fast models through omp's own providers and logins. The agent's model, roles and thinking level are never touched.
 
+![Demo: a ghost suggestion accepted word by word with Ctrl+→ and then in full with →; a rough draft refined with Alt+E and a custom instruction, then restored with Esc](docs/demo.gif)
+
+<sub>Recorded in a live omp 18.4.4 session. The badges show which key was pressed.</sub>
+
 ## Install
 
 ```sh
