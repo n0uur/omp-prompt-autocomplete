@@ -1,10 +1,18 @@
 {
 	"name": "omp-prompt-autocomplete",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "AI ghost-text autocomplete and one-key prompt refinement for the oh-my-pi (omp) prompt editor",
 	"type": "module",
 	"license": "MIT",
 	"author": "Krittanut Siripornnoppakhun <50010805+n0uur@users.noreply.github.com>",
+	"homepage": "https://github.com/n0uur/omp-prompt-autocomplete#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/n0uur/omp-prompt-autocomplete.git"
+	},
+	"bugs": {
+		"url": "https://github.com/n0uur/omp-prompt-autocomplete/issues"
+	},
 	"keywords": [
 		"omp",
 		"oh-my-pi",

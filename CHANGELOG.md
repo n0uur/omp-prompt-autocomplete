@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-09-30
+
+### Changed
+
+- Package metadata now includes `homepage`, `repository` and `bugs`, which point to [GitHub](https://github.com/n0uur/omp-prompt-autocomplete). The npm page links there and shows the README demo GIF.
+
 ## 0.2.0 — 2026-09-30
 
 ### Added
