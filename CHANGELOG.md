@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — 2026-10-09
+
+### Fixed
+
+- **Suggestions no longer answer back.** The model sometimes suggested the agent's reply instead of your next words (`Please fix this issue` → ` Yeah I will do that`). The system prompt now says suggestions are the user's own words addressed to the agent: it may still suggest a next sentence (another instruction, detail or question), but it never answers, acknowledges or agrees to the message. As a backstop, a suggestion that opens with an acknowledgement (`Sure,`, `Yeah I…`, `Got it.`) is dropped, and so is one that starts a new sentence with the agent committing to act (`I'll…`, `Let me check…`). Mid-sentence words like `make sure` or `is it OK to` are unaffected.
+- **Refine no longer changes model names and versions.** "Polish", "Fix grammar only" and the other presets would rewrite names newer than the refine model knows: `Claude Haiku 5.5` became `Claude Haiku 3.5`, and even `Gemini 3.1 Flash Lite` became `Gemini 1.5`. This happened in 24 of 40 live test runs. The model is now told that names and versions are correct as written, and it is given the list of numbers in the draft. A rewrite that drops one of them, or adds a version mentioned nowhere in the draft, instruction or background, is rejected like a lost attachment placeholder, and your draft stays unchanged. The same 40 runs now keep every version.
+
 ## 0.2.1 — 2026-09-30
 
 ### Changed

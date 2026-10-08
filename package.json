@@ -1,6 +1,6 @@
 {
 	"name": "omp-prompt-autocomplete",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "AI ghost-text autocomplete and one-key prompt refinement for the oh-my-pi (omp) prompt editor",
 	"type": "module",
 	"license": "MIT",
