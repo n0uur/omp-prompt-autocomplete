@@ -9,8 +9,11 @@ import { type PromptContext, renderPromptContext } from "./context";
  * background; the reply must reproduce every attachment placeholder (`[Image #1, …]`,
  * `[Paste #2, …]`, skill/model chips) exactly as often as the draft had it, otherwise it is
  * rejected — placeholders expand to their real content only on submit, so a lost or duplicated
- * one would silently drop or repeat an attachment. Output is plain text: terminal controls are
- * stripped and nothing is executed. Draft text never appears in error messages.
+ * one would silently drop or repeat an attachment. The reply must also keep every number of the
+ * draft and invent no versions: small models "correct" names they have not heard of
+ * (`Claude Haiku 5.5` → `Claude Haiku 3.5`), which silently changes what the agent is asked to do.
+ * Output is plain text: terminal controls are stripped and nothing is executed. Error messages
+ * name only the placeholders or numbers the rewrite got wrong, never other draft text.
  */
 
 export interface RefinePreset {
@@ -68,6 +71,7 @@ export const REFINE_SYSTEM_PROMPT = [
 	"- You are editing the message, not answering it. Never carry out the request, answer questions in it, greet, or comment on your changes.",
 	"- Keep the user's intent, facts, requirements and point of view: the user is still the one asking the agent.",
 	"- Do not invent requirements, files, names or details.",
+	"- Names and versions of models, products, libraries and tools are correct as written, even when you do not recognise them or they look newer than anything you know: your knowledge is out of date. Never correct, update, downgrade or drop a name or version number. Spelling fixes apply to ordinary words, not to names.",
 	"- Keep code, commands, file paths, identifiers, URLs, @mentions, /commands and numbers exactly as written unless the instruction asks otherwise.",
 	"- Bracketed placeholders such as [Image #1, 800x600] or [Paste #2, +30 lines] stand for attachments. Keep every placeholder verbatim, exactly as many times as in the draft.",
 	"- Keep the draft's language unless the instruction asks for another language.",
@@ -136,6 +140,43 @@ export function placeholderMismatches(expected: readonly string[], text: string)
 	return wrong;
 }
 
+/** Line-start ordered-list markers (`1. `, `2) `): a rewrite may add or renumber them. */
+const LIST_MARKER = /^[ \t]*\d+[.)][ \t]/gm;
+/** Integers and dotted runs: versions (`5.5`, `18.4.9`), decimals, addresses. */
+const NUMBER = /\d+(?:\.\d+)*/g;
+
+/**
+ * Distinct numbers in `text`, in first-seen order. Occurrences inside `placeholders` (which have
+ * their own check) and ordered-list markers are skipped.
+ */
+export function numbersOf(text: string, placeholders: readonly string[] = []): string[] {
+	let rest = text;
+	for (const token of new Set(placeholders)) rest = rest.replaceAll(token, " ");
+	return [...new Set(rest.replace(LIST_MARKER, " ").match(NUMBER) ?? [])];
+}
+
+/**
+ * How `rewrite` changed the numbers of the request's draft. `dropped`: draft numbers the rewrite
+ * no longer contains. `added`: dotted numbers (versions, decimals) that neither the draft, the
+ * instruction nor the background mentions. New plain integers pass (`two` → `2`, step numbers),
+ * and numbers the instruction itself mentions may come and go (`change 5.5 to 6`).
+ */
+export function numberChanges(request: RefineRequest, rewrite: string): { dropped: string[]; added: string[] } {
+	const fromInstruction = new Set(numbersOf(request.instruction));
+	const before = numbersOf(request.draft, request.protectedTokens);
+	const after = numbersOf(rewrite, request.protectedTokens);
+	const kept = new Set(after);
+	const known = new Set([...before, ...fromInstruction, ...numbersOf(renderPromptContext(request.background))]);
+	return {
+		dropped: before.filter(number => !kept.has(number) && !fromInstruction.has(number)),
+		added: after.filter(number => number.includes(".") && !known.has(number)),
+	};
+}
+
+function listOf(items: readonly string[], max = 4): string {
+	return items.length > max ? `${items.slice(0, max).join(", ")}, …` : items.join(", ");
+}
+
 export function buildRefineContext(request: RefineRequest): Context {
 	const sections: string[] = [];
 	const background = renderPromptContext(request.background);
@@ -144,6 +185,10 @@ export function buildRefineContext(request: RefineRequest): Context {
 	const unique = [...new Set(request.protectedTokens)];
 	if (unique.length > 0) {
 		sections.push(`Placeholders to keep verbatim: ${unique.map(token => JSON.stringify(token)).join(", ")}`);
+	}
+	const numbers = numbersOf(request.draft, unique);
+	if (numbers.length > 0) {
+		sections.push(`Numbers and versions to keep exactly as written: ${numbers.map(number => JSON.stringify(number)).join(", ")}`);
 	}
 	sections.push(`<draft>\n${request.draft}\n</draft>`);
 	return {
@@ -195,7 +240,7 @@ function textOf(message: AssistantMessage): string {
 /**
  * Ask the backend to rewrite the draft. Resolves with the rewritten text; throws an
  * `AbortError` when `signal` aborts and a {@link RefineError} for every other failure
- * (deadline, provider error, truncated or unusable reply, lost placeholders).
+ * (deadline, provider error, truncated or unusable reply, lost placeholders, changed numbers).
  */
 export async function refineDraft(
 	backend: RefineBackend,
@@ -236,6 +281,11 @@ export async function refineDraft(
 	const lost = placeholderMismatches(request.protectedTokens, refined);
 	if (lost.length > 0) {
 		throw new RefineError(`the rewrite changed attachment placeholders (${lost.join(", ")})`);
+	}
+	const { dropped, added } = numberChanges(request, refined);
+	if (dropped.length > 0 || added.length > 0) {
+		const changes = [dropped.length > 0 ? `dropped ${listOf(dropped)}` : "", added.length > 0 ? `added ${listOf(added)}` : ""];
+		throw new RefineError(`the rewrite changed numbers or versions (${changes.filter(Boolean).join("; ")})`);
 	}
 	return refined;
 }

@@ -77,6 +77,8 @@ Your last three custom instructions are listed above the presets as `recent` unt
 
 Attachments are protected. Placeholders such as `[Image #1, …]` and `[Paste #2, +30 lines]`, as well as skill and model chips, are passed to the model as text that must not change. If the rewrite drops or duplicates one of them, the rewrite is rejected and your draft stays unchanged.
 
+Names and versions are protected too. Small models tend to "correct" names newer than their training data, for example rewriting `Claude Haiku 5.5` as `Claude Haiku 3.5`. The model is told to keep names and version numbers exactly as written, and the rewrite is checked afterwards. If it drops a number from your draft or adds a version that appears nowhere in the draft, the instruction or the session background, it is rejected and your draft stays unchanged. Plain counts the model adds (`two` → `2`, numbered list items) are allowed. If your own instruction mentions a number (`change 5.5 to 6`), that number may change.
+
 To change the shortcut, set `OMP_PROMPT_REFINE_KEY` (for example `ctrl+shift+e`) in the environment before starting omp. Run `/hotkeys` to check for conflicts.
 
 ## Commands

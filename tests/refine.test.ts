@@ -3,6 +3,7 @@ import type { AssistantMessage, Context } from "@oh-my-pi/pi-ai";
 import { nextWordOf } from "../src/next-word";
 import {
 	MAX_REFINE_DRAFT_CHARS,
+	numberChanges,
 	parseRefinedPrompt,
 	placeholderMismatches,
 	protectedTokensOf,
@@ -143,6 +144,43 @@ describe("placeholders", () => {
 	});
 });
 
+describe("numberChanges", () => {
+	test("a version the model 'corrected' shows up as dropped and added", () => {
+		const changes = numberChanges(
+			request({ draft: "compare claude haiku 5.5 with gemini 3.1 flash lite" }),
+			"Compare Claude Haiku 3.5 with Gemini 1.5 Flash-Lite.",
+		);
+		expect(changes).toEqual({ dropped: ["5.5", "3.1"], added: ["3.5", "1.5"] });
+	});
+
+	test("a swap hidden by a repeated version is still caught as added", () => {
+		const changes = numberChanges(request({ draft: "use opus 5.5 to plan and sonnet 5.5 to code" }), "Use Opus 4.1 to plan and Sonnet 5.5 to code.");
+		expect(changes).toEqual({ dropped: [], added: ["4.1"] });
+	});
+
+	test("dropping a plain integer counts, adding one or a list marker does not", () => {
+		expect(numberChanges(request({ draft: "use opus 4 for planning" }), "Use Opus for planning.").dropped).toEqual(["4"]);
+		expect(numberChanges(request({ draft: "run two suites on node 24" }), "1. Run 2 suites on Node 24.\n2) Report.")).toEqual({ dropped: [], added: [] });
+	});
+
+	test("numbers inside placeholders belong to the placeholder check", () => {
+		const changes = numberChanges(
+			request({ draft: "see [Image #1, 800x600] for bun 1.4.2", protectedTokens: ["[Image #1, 800x600]"] }),
+			"See [Image #1, 800x600] for Bun 1.4.2.",
+		);
+		expect(changes).toEqual({ dropped: [], added: [] });
+	});
+
+	test("versions the instruction or background mention may come and go", () => {
+		expect(numberChanges(request({ draft: "bump react to 19.2", instruction: "change 19.2 to 21.0" }), "Bump React to 21.0.")).toEqual({
+			dropped: [],
+			added: [],
+		});
+		const background = { cwd: "C:\\Work\\app", recentTurns: [{ role: "assistant" as const, text: "installed vite 8.2" }], recentFiles: [] };
+		expect(numberChanges(request({ draft: "that vite version breaks hmr", background }), "Vite 8.2 breaks HMR.").added).toEqual([]);
+	});
+});
+
 describe("refineDraft", () => {
 	test("sends instruction, placeholders and draft as data and returns the rewrite", async () => {
 		const { backend, calls } = backendOf(reply("<prompt>Please fix the login bug in [Image #1].</prompt>"));
@@ -180,6 +218,13 @@ describe("refineDraft", () => {
 		);
 		expect(error).toBeInstanceOf(RefineError);
 		expect(error.message).toContain("[Paste #1, +30 lines]");
+	});
+
+	test("a rewrite that changes a version is rejected, naming only the changed numbers", async () => {
+		const { backend } = backendOf(reply("<prompt>Compare Claude Haiku 3.5 with Gemini 1.5 Flash-Lite.</prompt>"));
+		const error = await errorOf(refineDraft(backend, request({ draft: "compare claude haiku 5.5 with gemini 3.1 flash lite" }), idleSignal));
+		expect(error).toBeInstanceOf(RefineError);
+		expect(error.message).toBe("the rewrite changed numbers or versions (dropped 5.5, 3.1; added 3.5, 1.5)");
 	});
 
 	test("provider errors, truncation and empty replies become RefineErrors without the draft", async () => {
