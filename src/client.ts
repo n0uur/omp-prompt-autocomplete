@@ -37,6 +37,9 @@ const CHAT_EXAMPLES: ReadonlyArray<{ prefix: string; suffix: string; continuatio
 	{ prefix: "Please fix the bu", suffix: "", continuation: "g in this function." },
 	{ prefix: "const total = prices.reduce((sum, price) => ", suffix: ";", continuation: "sum + price, 0)" },
 	{ prefix: "Please add", suffix: "", continuation: " error handling for failed requests." },
+	{ prefix: "Please fix this issue", suffix: "", continuation: " and add a regression test for it." },
+	{ prefix: "You can use sub-agents for the parallel tasks. ", suffix: "", continuation: "Keep the public API unchanged." },
+	{ prefix: "Looks good. Now update the", suffix: "", continuation: " README to match." },
 	{ prefix: "Can you check why the tests fail when", suffix: "", continuation: " I run them in CI?" },
 ];
 
@@ -46,9 +49,11 @@ const CHAT_EXAMPLES: ReadonlyArray<{ prefix: string; suffix: string; continuatio
  */
 export const SYSTEM_PROMPT = [
 	"You are an inline autocomplete engine inside a chat prompt box, not an assistant.",
-	"The user is typing a message to a coding agent. Continue the unfinished text at the cursor.",
+	"The user is typing a message to a coding agent. TEXT predicts the user's own next words: written by the user, in the user's voice, addressed to the agent.",
 	"Reply with exactly <ins>TEXT</ins>, where TEXT is only the new characters to insert between prefix and suffix.",
-	"Never repeat the prefix, answer or carry out its request, explain, or use markdown fences.",
+	"Continue the sentence in progress. After a finished sentence, TEXT may be the user's likely next sentence: a further instruction, detail, constraint or question for the agent.",
+	"Never answer, acknowledge or agree to the message. The agent replies only after the message is sent, so text like \"Sure.\", \"Yeah, I will do that.\", \"Got it.\", \"I'll fix it now.\" or \"Let me check.\" is never part of it.",
+	"Never repeat the prefix, carry out its request, explain, or use markdown fences.",
 	"Preserve necessary leading spaces. TEXT is a short single-line continuation, at most 12 words.",
 	"Reply <ins></ins> when nothing natural follows.",
 	"A Background section may describe the project, recent files, and the conversation so far.",
@@ -83,6 +88,24 @@ const GENERIC_SPECIAL_TOKEN = /<\|[A-Za-z_][A-Za-z0-9_]*\|>/;
 const ANSI_ESCAPES = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][\s\S]*?(?:\u0007|\u001b\\|$)|[@-Z\\-_])/g;
 /** Output that is reasoning rather than an insertion (rejected, never shown). */
 const REASONING_OUTPUT = /^\s*(?:<(?:think|thinking|reasoning)>|\/?(?:think|thinking|reasoning|analysis)\b\s*[:\-\u2013])/i;
+/** Agent-style acknowledgement opening the insertion ("Sure, …", "Yeah I will …", "Got it."). */
+const ACKNOWLEDGEMENT =
+	/^\s*(?:Sure|Yeah|Yep|Yes|Okay|OK|Alright|All right|Got it|Will do|On it|Certainly|Of course|Absolutely|No problem|Understood|Sounds good)(?:[,.!]|\s+I\b|\s*$)/;
+/** The agent committing to act ("I'll …", "Let me check"), as a sentence of its own. */
+const AGENT_COMMITMENT = /^\s*(?:I(?:'|\u2019)ll|I will|I(?:'|\u2019)m going to|I am going to|Let me(?! know))\b/;
+
+/**
+ * Whether `text` reads as the agent answering the draft rather than the user's own next words.
+ * Small models occasionally do this despite the prompt; such suggestions are dropped, not shown.
+ * Only whole words count (never the tail of a word being typed), and first-person commitments
+ * only at a sentence start, so "Can you make sure …" or "fails when I will …" stay usable.
+ */
+function readsAsReply(prefix: string, text: string): boolean {
+	if (!/^\s/.test(text) && /[\p{L}\p{N}]$/u.test(prefix)) {
+		return false;
+	}
+	return ACKNOWLEDGEMENT.test(text) || (/(?:^|[.!?]["'\u201d)\]]*)\s*$/.test(prefix) && AGENT_COMMITMENT.test(text));
+}
 
 /**
  * Reduce a raw model response to a single-line insertion, or `null` when nothing usable
@@ -238,5 +261,6 @@ export async function completeSnapshot(
 		// Provider error messages never contain the draft; still, keep them short.
 		throw new Error(message.errorMessage?.split("\n")[0] || "Completion request failed");
 	}
-	return normalizeCompletionText(textOf(message));
+	const text = normalizeCompletionText(textOf(message));
+	return text !== null && readsAsReply(snapshot.prefix, text) ? null : text;
 }

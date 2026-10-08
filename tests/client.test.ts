@@ -86,7 +86,7 @@ describe("buildCompletionContext", () => {
 			const { prefix, suffix } = JSON.parse(input.slice("Draft: ".length));
 			const continuation = /^Output: <ins>(.*)<\/ins>$/.exec(outputs[index])?.[1];
 			expect(continuation).toBeDefined();
-			expect(`${prefix}${continuation}${suffix}`).toMatch(/^[A-Za-z].*[.;?)]$/);
+			expect(`${prefix}${continuation}${suffix}`).toMatch(/^[A-Za-z].*[.;?)]\s*$/);
 		}
 	});
 });
@@ -110,6 +110,33 @@ describe("completeSnapshot", () => {
 	test("an empty or whitespace reply yields null", async () => {
 		expect(await completeSnapshot(recording(reply("")).backend, { prefix: "x", suffix: "" }, idleSignal)).toBeNull();
 		expect(await completeSnapshot(recording(reply("  \n")).backend, { prefix: "x", suffix: "" }, idleSignal)).toBeNull();
+	});
+
+	test("drops suggestions where the agent answers the draft, keeps the user's own next words", async () => {
+		const suggest = async (prefix: string, raw: string) =>
+			completeSnapshot(recording(reply(`<ins>${raw}</ins>`)).backend, { prefix, suffix: "" }, idleSignal);
+		const answers: Array<[string, string]> = [
+			["Please fix this issue", " Yeah I will do that"],
+			["Please fix this issue", " Sure, on it."],
+			["Can you add tests for the parser? ", "Got it."],
+			["Please fix this issue. ", "I'll fix it now."],
+			["Run the tests.", " Let me check the failures."],
+			['Use "strict".', " I\u2019m going to update the config."],
+		];
+		for (const [prefix, raw] of answers) {
+			expect(await suggest(prefix, raw)).toBeNull();
+		}
+		const ownWords: Array<[string, string, string]> = [
+			["Can you make", " sure the tests pass?", " sure the tests pass?"],
+			["Is it", " OK to delete this file?", " OK to delete this file?"],
+			["Check why it fails when", " I will run it in CI.", " I will run it in CI."],
+			["Please fix this issue. ", "Let me know if anything is unclear.", "Let me know if anything is unclear."],
+			["Please fix this issue. Su", "re the cache is cleared first.", "re the cache is cleared first."],
+			["Please fix this issue. ", "Also add a regression test.", "Also add a regression test."],
+		];
+		for (const [prefix, raw, expected] of ownWords) {
+			expect(await suggest(prefix, raw)).toBe(expected);
+		}
 	});
 
 	test("throws an AbortError when the caller aborts, before or during the request", async () => {
